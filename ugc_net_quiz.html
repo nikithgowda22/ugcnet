@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UGC NET Quiz Platform</title>
+    <script src="27theveningjune2024paper.js"></script>
+    <script src="29thjunemorning2025paper.js"></script>
+    <script src="26thjuneeveningshift2025paper.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 900px; margin: auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #2c3e50; }
+        .controls { margin-bottom: 20px; padding: 15px; background: #e9ecef; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        select { padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; width: 60%; }
+        button#load-btn { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .question-block { margin-bottom: 25px; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fff; }
+        .question-text { font-size: 1.1em; font-weight: 600; margin-bottom: 15px; color: #34495e; }
+        .option { display: block; margin-bottom: 8px; padding: 12px 15px; border: 2px solid #eee; border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+        .option:hover:not(.disabled) { background-color: #f8f9fa; border-color: #adb5bd; }
+        .option.correct { background-color: #d4edda; border-color: #28a745; color: #155724; }
+        .option.wrong { background-color: #f8d7da; border-color: #dc3545; color: #721c24; }
+        .option.disabled { pointer-events: none; cursor: default; opacity: 0.9; }
+        .status-msg { font-weight: bold; color: #dc3545; margin-top: 5px; }
+        #submit-btn { display: block; width: 100%; padding: 15px; background-color: #007bff; color: white; border: none; border-radius: 6px; font-size: 1.2em; cursor: pointer; margin-top: 30px; }
+        #submit-btn:hover { background-color: #0056b3; }
+        #results { margin-top: 30px; padding: 20px; background-color: #d1ecf1; color: #0c5460; border-radius: 6px; text-align: center; font-size: 1.2em; display: none; }
+        .dropped-note { color: #856404; background-color: #fff3cd; padding: 10px; border-radius: 5px; margin-bottom: 10px; border: 1px solid #ffeeba; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>UGC NET Practice Engine</h1>
+    
+    <div class="controls">
+        <label for="paper-select"><strong>Select Paper:</strong></label>
+        <select id="paper-select">
+            <option value="" disabled selected>-- Choose a Paper --</option>
+        </select>
+        <button id="load-btn" onclick="initializeQuiz()">Load Quiz</button>
+    </div>
+
+    <div id="quiz-area" style="display:none;">
+        <h2 id="paper-title"></h2>
+        <p><strong>Instructions:</strong> 2 Marks per question. No negative marking. Immediate feedback enabled.</p>
+        <div id="questions-container"></div>
+        <button id="submit-btn" onclick="submitQuiz()">Submit & Calculate Final Score</button>
+    </div>
+
+    <div id="results"></div>
+</div>
+
+<script>
+    let currentQuestions = [];
+    let userAnswers = [];
+    let questionMarks = [];
+
+    // 1. Populate Dropdown based on loaded JS files
+    window.onload = function() {
+        const selector = document.getElementById('paper-select');
+        if (!window.quizPapers || Object.keys(window.quizPapers).length === 0) {
+            alert("No question papers found! Make sure '27theveningjune2024paper.js' is in the same folder.");
+            return;
+        }
+
+        for (const [key, paperData] of Object.entries(window.quizPapers)) {
+            const option = document.createElement("option");
+            option.value = key;
+            option.text = paperData.title || key;
+            selector.appendChild(option);
+        }
+        
+        // Auto-select the first paper if available
+        selector.selectedIndex = 1; 
+    };
+
+    // 2. Load the selected quiz
+    function initializeQuiz() {
+        const paperKey = document.getElementById('paper-select').value;
+        if (!paperKey) {
+            alert("Please select a paper first.");
+            return;
+        }
+
+        const paperData = window.quizPapers[paperKey];
+        currentQuestions = paperData.questions;
+        
+        // Reset state
+        userAnswers = new Array(currentQuestions.length).fill(null);
+        questionMarks = new Array(currentQuestions.length).fill(0);
+        
+        document.getElementById('paper-title').innerText = paperData.title;
+        document.getElementById('quiz-area').style.display = 'block';
+        document.getElementById('results').style.display = 'none';
+
+        renderQuestions();
+    }
+
+    // 3. Render HTML for questions
+    function renderQuestions() {
+        const container = document.getElementById('questions-container');
+        let html = '';
+
+        currentQuestions.forEach((q, index) => {
+            // Check if question is dropped
+            if (q.isDropped) {
+                html += `
+                    <div class="question-block">
+                        <div class="question-text">Q${index + 1}. ${q.question}</div>
+                        <div class="dropped-note">⚠️ This question was DROPPED in the official key. 2 Bonus marks awarded automatically.</div>
+                    </div>`;
+                questionMarks[index] = 2; // Auto award marks
+                userAnswers[index] = 'dropped';
+                return;
+            }
+
+            const optionsHtml = q.options.map((opt, i) => `
+                <label class="option" id="q${index}-opt${i}" onclick="handleAnswer(${index}, ${i})">
+                    <strong>(${i + 1})</strong> ${opt}
+                </label>
+            `).join('');
+
+            html += `
+                <div class="question-block" id="q-block-${index}">
+                    <div class="question-text">Q${index + 1}. ${q.question}</div>
+                    <div id="options-${index}">${optionsHtml}</div>
+                    <div id="status-${index}" class="status-msg"></div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    // 4. Handle Logic (Immediate Feedback)
+    function handleAnswer(qIndex, selectedOptIndex) {
+        if (userAnswers[qIndex] !== null) return; // Prevent re-answering
+
+        userAnswers[qIndex] = selectedOptIndex;
+        const qData = currentQuestions[qIndex];
+        const correctOpt = qData.correct;
+
+        const optionsDiv = document.getElementById(`options-${qIndex}`);
+        const allOptions = optionsDiv.querySelectorAll('.option');
+        
+        // Disable clicks
+        allOptions.forEach(opt => opt.classList.add('disabled'));
+
+        const selectedEl = document.getElementById(`q${qIndex}-opt${selectedOptIndex}`);
+        
+        // Check correctness (Handle arrays for multiple correct answers)
+        let isCorrect = false;
+        if (Array.isArray(correctOpt)) {
+            isCorrect = correctOpt.includes(selectedOptIndex);
+        } else {
+            isCorrect = (selectedOptIndex === correctOpt);
+        }
+
+        if (isCorrect) {
+            selectedEl.classList.add('correct');
+            questionMarks[qIndex] = 2;
+        } else {
+            selectedEl.classList.add('wrong');
+            
+            // Highlight correct answer(s)
+            if (Array.isArray(correctOpt)) {
+                correctOpt.forEach(c => document.getElementById(`q${qIndex}-opt${c}`).classList.add('correct'));
+            } else {
+                document.getElementById(`q${qIndex}-opt${correctOpt}`).classList.add('correct');
+            }
+        }
+    }
+
+    // 5. Submit & Score
+    function submitQuiz() {
+        const totalMarks = currentQuestions.length * 2;
+        const myScore = questionMarks.reduce((a, b) => a + b, 0);
+        const attempted = userAnswers.filter(a => a !== null).length;
+
+        const resultsDiv = document.getElementById('results');
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = `
+            <h2>RESULT SUMMARY</h2>
+            <p>Score: <strong>${myScore} / ${totalMarks}</strong></p>
+            <p>Questions Attempted: <strong>${attempted} / ${currentQuestions.length}</strong></p>
+        `;
+        resultsDiv.scrollIntoView({behavior: "smooth"});
+    }
+</script>
+
+</body>
+</html>
